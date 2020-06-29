@@ -71,7 +71,7 @@ public class PathTracingMaster : MonoBehaviour
             //sphere.albedo = new Vector3(0.95f,0.04f, 0.04f);
             sphere.albedo = new Vector3(color.r, color.g, color.b);
             sphere.emission = new Vector3(0, 0, 0);
-            sphere.metallic = 0.0f;
+            sphere.metallic = 1.0f;
             sphere.roughness = 0.1f;
 
             spheres.Add(sphere);

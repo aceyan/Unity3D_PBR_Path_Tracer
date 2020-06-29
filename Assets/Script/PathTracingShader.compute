@@ -53,7 +53,7 @@ Ray CreateCameraRay(float2 uv)
     // Transform the camera origin to world space
     float3 origin = mul(_CameraToWorld, float4(0.0f, 0.0f, 0.0f, 1.0f)).xyz;
    //transform float4(uv, 0.0f, 1.0f) to camera space on near plane
-    float3 direction = mul(_CameraInverseProjection, float4(uv, 0.0f, 1.0f)).xyz; 
+    float3 direction = mul(_CameraInverseProjection, float4(uv, 0.0f, 1.0f)).xyz;
     direction = direction - float3(0, 0, 0);
     
     direction = mul(_CameraToWorld, float4(direction, 0.0f)).xyz;
@@ -169,20 +169,6 @@ RayHit Trace(Ray ray)
     return bestHit;
 }
 
-float sdot(float3 x, float3 y, float f = 1.0f)
-{
-    return saturate(dot(x, y) * f);
-}
-
-float energy(float3 color)
-{
-    return dot(color, 1.0f / 3.0f);
-}
-
-float SmoothnessToPhongAlpha(float s)
-{
-    return pow(1000.0f, s * s);
-}
 
 //calculate fresnel
 void fresnel(const float3 I, const float3 N, const float3 ior, inout float kr)
@@ -254,13 +240,39 @@ float GeometrySmith(float3 N, float3 V, float3 L, float roughness)
     return ggx1 * ggx2;
 }
 
+float3 ImportanceSampleGGX(float2 Xi, float3 N, float3 V, float roughness)
+{
+    float a = roughness * roughness;
+
+    float phi = 2.0 * PI * Xi.x;
+    float cosTheta = sqrt((1.0 - Xi.y) / (1.0 + (a * a - 1.0) * Xi.y));
+    float sinTheta = sqrt(1.0 - cosTheta * cosTheta);
+
+    // from spherical coordinates to cartesian coordinates
+    float3 H;
+    H.x = cos(phi) * sinTheta;
+    H.y = sin(phi) * sinTheta;
+    H.z = cosTheta;
+
+    // from tangent-space vector to world-space sample vector
+    float3 up = abs(N.z) < 0.999 ? float3(0.0, 0.0, 1.0) : float3(1.0, 0.0, 0.0);
+    float3 tangent = normalize(cross(up, N));
+    float3 bitangent = cross(N, tangent);
+
+    float3 halfVec = tangent * H.x + bitangent * H.y + N * H.z;
+    halfVec = normalize(halfVec);
+    
+    //isosceles
+    float3 sampelVec = 2.0 * dot(V, halfVec) * halfVec - V;
+    return normalize(sampelVec);
+
+}
+
 float3 Shade(inout Ray ray, RayHit hit)
 {
     if (hit.distance < 1.#INF)
     {
 
-
-        
         float3 reflectionDir;
         float roulette = rand();
         
@@ -268,15 +280,21 @@ float3 Shade(inout Ray ray, RayHit hit)
         float specularRoatio = 1 - diffuseRatio;
         
         if (roulette < diffuseRatio)
-        {
-            //sample diffuse
+        { //sample diffuse
+            
             //cosin sample
             reflectionDir = SampleHemisphere(hit.normal, 1.0f);
         }
         else
-        {
-            //sample specular
-            reflectionDir = SampleHemisphere(hit.normal, 0.0f);
+        { //sample specular
+            
+            
+            //hemisphere sampling
+            //reflectionDir = SampleHemisphere(hit.normal, 0.0f);
+
+            //ImportanceSampleGGX
+            reflectionDir = ImportanceSampleGGX(float2(rand(), rand()), hit.normal, -ray.direction, hit.roughness);
+
         }
         
         
@@ -285,7 +303,10 @@ float3 Shade(inout Ray ray, RayHit hit)
         float3 V = normalize(-ray.direction);
         float3 L = normalize(reflectionDir);
         float3 H = normalize(V + L);
+        
         float NdotL = max(dot(hit.normal, L), 0.0);
+        float NdotH = max(dot(hit.normal, H), 0.0);
+        float VdotH = max(dot(V, H), 0.0);
         
         float3 F0 = float3(0.04, 0.04, 0.04);
         F0 = lerp(F0, hit.albedo, hit.metallic);
@@ -300,14 +321,25 @@ float3 Shade(inout Ray ray, RayHit hit)
         kD *= 1.0 - hit.metallic;
         
         //specualr
+        //Microfacet specular = D * G * F / (4 * NoL * NoV)
         float3 nominator = NDF * G * F;
         float denominator = 4.0 * max(dot(hit.normal, V), 0.0) * max(dot(hit.normal, L), 0.0) + 0.001;
         float3 specularBrdf = nominator / denominator;
-        float speccualrPdf = 1 / (2 * PI);
+        
+        //hemisphere sampling pdf
+        //pdf = 1 / (2 * PI)
+        //float speccualrPdf = 1 / (2 * PI);
+        
+        //ImportanceSampleGGX pdf
+        //pdf = D * NoH / (4 * VoH)
+        float speccualrPdf = NDF * NdotH / (4 * VdotH);
+        
 
         
         //diffuse
+        //Lambert diffuse = diffuse / PI
         float3 diffuseBrdf = hit.albedo / PI;
+        //cosin sample pdf = N dot L / PI
         float diffusePdf = NdotL / PI;
 
         float3 totalBrdf = (diffuseBrdf * kD + specularBrdf) * NdotL;
@@ -354,7 +386,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
     // Trace and shade
     float3 result = float3(0, 0, 0);
     for (int i = 0; i < 8; i++)
-    {//tracing 8 bounces
+    { //tracing 8 bounces
         RayHit hit = Trace(ray);
         result += ray.energy * Shade(ray, hit);
 
@@ -362,6 +394,6 @@ void CSMain(uint3 id : SV_DispatchThreadID)
             break;
     }
     
-    Result[id.xy] = float4(result , 1);
+    Result[id.xy] = float4(result, 1);
 
 }
