@@ -27,6 +27,7 @@ struct Sphere
     float3 albedo;
     float metallic;
     float roughness;
+    float specular;
     float3 emission;
 };
 StructuredBuffer<Sphere> _Spheres;
@@ -69,6 +70,7 @@ struct RayHit
     float3 albedo;
     float metallic;
     float roughness;
+    float specular;
     float3 emission;
 };
 
@@ -81,6 +83,7 @@ RayHit CreateRayHit()
     hit.albedo = float3(0.0f, 0.0f, 0.0f);
     hit.metallic = 0;
     hit.roughness = 0;
+    hit.specular = 0;
     hit.emission = float3(0, 0, 0);
     return hit;
 }
@@ -97,6 +100,7 @@ void IntersectGroundPlane(Ray ray, inout RayHit bestHit)
         bestHit.albedo = 0.5f;
         bestHit.metallic = 0.5f;
         bestHit.roughness = 1.0f;
+        bestHit.specular = 0.5f;
         bestHit.emission = float3(0, 0, 0);
 
     }
@@ -122,6 +126,7 @@ void IntersectSphere(Ray ray, inout RayHit bestHit, Sphere sphere)
         bestHit.albedo = sphere.albedo;
         bestHit.metallic = sphere.metallic;
         bestHit.roughness = sphere.roughness;
+        bestHit.specular = sphere.specular;
         bestHit.emission = sphere.emission;
     }
 }
@@ -308,8 +313,8 @@ float3 Shade(inout Ray ray, RayHit hit)
         float NdotH = max(dot(hit.normal, H), 0.0);
         float VdotH = max(dot(V, H), 0.0);
         
-        float3 F0 = float3(0.04, 0.04, 0.04);
-        F0 = lerp(F0, hit.albedo, hit.metallic);
+        float3 F0 = float3(0.08, 0.08, 0.08);
+        F0 = lerp(F0 * hit.specular, hit.albedo, hit.metallic);
         
         float NDF = DistributionGGX(hit.normal, H, hit.roughness);
         float G = GeometrySmith(hit.normal, V, L, hit.roughness);
