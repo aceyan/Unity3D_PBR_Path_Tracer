@@ -242,8 +242,8 @@ float GeometrySchlickGGX(float NdotV, float roughness)
 }
 float GeometrySmith(float3 N, float3 V, float3 L, float roughness)
 {
-    float NdotV = max(dot(N, V),0);
-    float NdotL = max(dot(N, L),0);
+    float NdotV = dot(N, V);
+    float NdotL = dot(N, L);
     float ggx2 = GeometrySchlickGGX(NdotV, roughness);
     float ggx1 = GeometrySchlickGGX(NdotL, roughness);
 
@@ -279,6 +279,37 @@ float3 ImportanceSampleGGX(float2 Xi, float3 N, float3 V, float roughness)
     
     return halfVec;
 
+}
+
+//calculate fresnel
+void calculatefresnel(const float3 I, const float3 N, const float3 ior, inout float kr)
+{
+    float cosi = clamp(-1, 1, dot(I, N));
+    float etai = 1, etat = ior;
+    if (cosi > 0)
+    {
+        //std::swap(etai, etat);
+        float temp = etai;
+        etai = etat;
+        etat = temp;
+    }
+    // Compute sini using Snell's law
+    float sint = etai / etat * sqrt(max(0.f, 1 - cosi * cosi));
+    // Total internal reflection
+    if (sint >= 1)
+    {
+        kr = 1;
+    }
+    else
+    {
+        float cost = sqrt(max(0.f, 1 - sint * sint));
+        cosi = abs(cosi);
+        float Rs = ((etat * cosi) - (etai * cost)) / ((etat * cosi) + (etai * cost));
+        float Rp = ((etai * cosi) - (etat * cost)) / ((etai * cosi) + (etat * cost));
+        kr = (Rs * Rs + Rp * Rp) / 2;
+    }
+    // As a consequence of the conservation of energy, transmittance is given by:
+    // kt = 1 - kr;
 }
 
 float3 Shade(inout Ray ray, RayHit hit)
@@ -390,7 +421,7 @@ float3 Shade(inout Ray ray, RayHit hit)
             float3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
             
             float3 L;
-            if (roulette < 0)
+            if (roulette < F.x)
             {//reflection
                
                     
@@ -484,17 +515,8 @@ float3 Shade(inout Ray ray, RayHit hit)
                         float NDF = DistributionGGX(N, H, hit.roughness);
                         //NDF = 1;
                         float G = GeometrySmith(N, V, L, hit.roughness);
-                        G = 1;
-            
-             //specualr
-            //Microfacet specular = D * G * F / (4 * NoL * NoV)
-                        float3 nominator = NDF * G * F;
-                        float denominator = 4.0 * NdotV * NdotL + 0.001;
-                        float3 specularBrdf = nominator / denominator;
-            
-            //ImportanceSampleGGX pdf
-            //pdf = D * NoH / (4 * VoH)
-                        float speccualrPdf = NDF * NdotH / (4 * VdotH);
+                        //G = 1;
+           
             
             
             //refraction 
@@ -521,7 +543,7 @@ float3 Shade(inout Ray ray, RayHit hit)
             
             
 
-                        float3 totalBrdf = refractionBrdf * NdotL2;
+                        float3 totalBrdf = refractionBrdf * NdotL;
                         //totalBrdf = 1;
                         float totalPdf = (1 - F.x) * refractionPdf;
                         //totalPdf = 1;
@@ -535,22 +557,111 @@ float3 Shade(inout Ray ray, RayHit hit)
                         }
             //ray.energy *= 1 ;
                     }
-                    else
-                    {
-                        ray.origin = hit.position + bias;
-                        ray.direction = reflect(ray.direction, N);
-                        ray.energy *= 1;
-                    }
-                
            
                 }
                 else
                 {
-                    ray.origin = hit.position + hit.normal * 0.01;
-                   // ray.direction = reflect(ray.direction, hit.normal);
-                    ray.energy *= 1;
+                    //ray.origin = hit.position + hit.normal * 0.01;
+                    //ray.energy *= 1;
+                    
+                    
+                    /////////////////////////////////////////////////////
+                    // 内部
+                    ///////////////////////////////////////////////////////
+                    
+                    
+                    float eta = etat / etai;
+                    L = normalize(refract(ray.direction, H, 1.55));
+                    
+                    
+                    float kr;
+                    calculatefresnel(ray.direction, H, 1.55, kr);
+                    
+                    
+                //L = N;
+                    if (rand() > kr)
+                    {
+                    
+                        //float NdotL = abs(dot(N, L));
+                        //float NdotV = abs(dot(N, V));
+            
+                        //float NdotH = abs(dot(N, H));
+                        //float VdotH = abs(dot(V, H));
+                        //float LdotH = abs(dot(L, H));
+                        
+                        float NdotL = abs(dot(-N, V));
+                        float NdotL2 = abs(dot(N, L));
+                        float NdotV = abs(dot(-N, L));
+            
+                        float NdotH = abs(dot(-N, -H));
+                        float VdotH = abs(dot(L, -H));
+                        float LdotH = abs(dot(V, -H));
+            
+      
+            
+                        float NDF = DistributionGGX(-N, -H, hit.roughness);
+                        //NDF = 1;
+                        float G = GeometrySmith(-N, L, V, hit.roughness);
+                        //G = 1;
+           
+            
+            
+            //refraction 
+                        //float etaOut =  etai;
+                        //float etaIn =  etat;
+                        
+                        float etaOut = etat;
+                        float etaIn = etai;
+            
+                        float term1 = VdotH * LdotH / (NdotV * NdotL);
+                        float3 term2 = etaOut * etaOut * (1 - F) * G * NDF;
+                        //term1 = 1;
+                        //term2 = 1;
+                        float term3 = (etaIn * VdotH + etaOut * LdotH) * (etaIn * VdotH + etaOut * LdotH);
+                        //term3 = 1;
+                        float3 refractionBrdf = term1 * term2 / term3;
+                    //refractionBrdf = float3(1, 1, 1);
+            //refractionBrdf = 0.5;
+            //refractionBrdf = 1;
+            //ImportanceSampleGGX pdf
+            //pdf = D * NoH / (4 * VoH)
+                        float refractionPdf = NDF * NdotH / (4 * VdotH);
+            
+            
+            //float3 totalBrdf = (specularBrdf + refractionBrdf) * NdotL;
+            //float totalPdf = F.x * speccualrPdf + (1 - F.x) * refractionPdf;
+            
+            
+
+                        float3 totalBrdf = refractionBrdf * NdotL2;
+                        //totalBrdf = 1;
+                        float totalPdf = (1 - F.x) * refractionPdf;
+                        //totalPdf = 1;
+                //float3 totalBrdf = specularBrdf * NdotL;
+                //float totalPdf = F.x * speccualrPdf;
+                        ray.origin = hit.position - bias;
+                        ray.direction = L;
+                        if (totalPdf > 0.0)
+                        {
+                            ray.energy *= totalBrdf / totalPdf;
+                            //ray.energy *= 0.5;
+
+                        }
+            //ray.energy *= 1 ;
+                    }
+                    else
+                    {
+                        //ray.origin = hit.position + bias;
+                        //ray.direction = reflect(ray.direction, H);
+                        //ray.energy *= 0.5;
+                        
+                        //ray.energy *= 1;
+                        //ray.origin = hit.position + hit.normal * 0.01;
+                        //ray.energy *= 1;
+                    }
                 }
             }
+
                    
             
           
@@ -571,7 +682,7 @@ float3 Shade(inout Ray ray, RayHit hit)
         // Sample the skybox and write it
         float theta = acos(ray.direction.y) / -PI;
         float phi = atan2(ray.direction.x, -ray.direction.z) / -PI * 0.5f;
-        return _SkyboxTexture.SampleLevel(sampler_SkyboxTexture, float2(phi, theta), 0).xyz * 1.8f;
+        return _SkyboxTexture.SampleLevel(sampler_SkyboxTexture, float2(phi, theta), 0).xyz;
     }
 }
 

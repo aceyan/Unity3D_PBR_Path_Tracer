@@ -277,7 +277,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   SphereRadius: {x: 5, y: 30}
-  SpheresMax: 10000
+  SpheresMax: 1000
   SpherePlacementRadius: 100
   SphereSeed: 122383271
   RayTracingShader: {fileID: 7200000, guid: fbcf628b29c45324898b8c011ace2f32, type: 3}
