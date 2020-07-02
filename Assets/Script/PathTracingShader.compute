@@ -28,6 +28,7 @@ struct Sphere
     float metallic;
     float roughness;
     float specular;
+    float specTrans;
     float3 emission;
 };
 StructuredBuffer<Sphere> _Spheres;
@@ -71,6 +72,7 @@ struct RayHit
     float metallic;
     float roughness;
     float specular;
+    float specTrans;
     float3 emission;
 };
 
@@ -84,6 +86,7 @@ RayHit CreateRayHit()
     hit.metallic = 0;
     hit.roughness = 0;
     hit.specular = 0;
+    hit.specTrans = 0;
     hit.emission = float3(0, 0, 0);
     return hit;
 }
@@ -101,6 +104,7 @@ void IntersectGroundPlane(Ray ray, inout RayHit bestHit)
         bestHit.metallic = 0.5f;
         bestHit.roughness = 1.0f;
         bestHit.specular = 0.5f;
+        bestHit.specTrans = 0;
         bestHit.emission = float3(0, 0, 0);
 
     }
@@ -127,6 +131,7 @@ void IntersectSphere(Ray ray, inout RayHit bestHit, Sphere sphere)
         bestHit.metallic = sphere.metallic;
         bestHit.roughness = sphere.roughness;
         bestHit.specular = sphere.specular;
+        bestHit.specTrans = sphere.specTrans;
         bestHit.emission = sphere.emission;
     }
 }
@@ -237,12 +242,17 @@ float GeometrySchlickGGX(float NdotV, float roughness)
 }
 float GeometrySmith(float3 N, float3 V, float3 L, float roughness)
 {
-    float NdotV = max(dot(N, V), 0.0);
-    float NdotL = max(dot(N, L), 0.0);
+    float NdotV = max(dot(N, V),0);
+    float NdotL = max(dot(N, L),0);
     float ggx2 = GeometrySchlickGGX(NdotV, roughness);
     float ggx1 = GeometrySchlickGGX(NdotL, roughness);
 
     return ggx1 * ggx2;
+}
+
+float GetEnergy(float3 color)
+{
+    return dot(color, 1.0f / 3.0f);
 }
 
 float3 ImportanceSampleGGX(float2 Xi, float3 N, float3 V, float roughness)
@@ -267,9 +277,7 @@ float3 ImportanceSampleGGX(float2 Xi, float3 N, float3 V, float roughness)
     float3 halfVec = tangent * H.x + bitangent * H.y + N * H.z;
     halfVec = normalize(halfVec);
     
-    //isosceles
-    float3 sampelVec = 2.0 * dot(V, halfVec) * halfVec - V;
-    return normalize(sampelVec);
+    return halfVec;
 
 }
 
@@ -281,55 +289,62 @@ float3 Shade(inout Ray ray, RayHit hit)
         float3 reflectionDir;
         float roulette = rand();
         
-        float diffuseRatio = 0.5 * (1.0 - hit.metallic);
-        float specularRoatio = 1 - diffuseRatio;
         
-        if (roulette < diffuseRatio)
-        { //sample diffuse
+        if (hit.specTrans == 0)
+        {
+            float diffuseRatio = 0.5 * (1.0 - hit.metallic);
+            float specularRoatio = 1 - diffuseRatio;
+            float3 V = normalize(-ray.direction);
+            
+            if (roulette < diffuseRatio)
+            { //sample diffuse
             
             //cosin sample
-            reflectionDir = SampleHemisphere(hit.normal, 1.0f);
-        }
-        else
-        { //sample specular
+                reflectionDir = SampleHemisphere(hit.normal, 1.0f);
+            }
+            else
+            { //sample specular
             
             
             //hemisphere sampling
             //reflectionDir = SampleHemisphere(hit.normal, 0.0f);
 
             //ImportanceSampleGGX
-            reflectionDir = ImportanceSampleGGX(float2(rand(), rand()), hit.normal, -ray.direction, hit.roughness);
-
-        }
+                float3 halfVec = ImportanceSampleGGX(float2(rand(), rand()), hit.normal, V, hit.roughness);
+                //isosceles
+                reflectionDir = 2.0 * dot(V, halfVec) * halfVec - V;
+                reflectionDir = normalize(reflectionDir);
+            }
         
         
 
+            
+            float3 L = normalize(reflectionDir);
+            float3 H = normalize(V + L);
         
-        float3 V = normalize(-ray.direction);
-        float3 L = normalize(reflectionDir);
-        float3 H = normalize(V + L);
+            float NdotL = abs(dot(hit.normal, L));
+            float NdotH = abs(dot(hit.normal, H));
+            float VdotH = abs(dot(V, H));
+            
+            float NdotV = abs(dot(hit.normal, V));
+            
+            float3 F0 = float3(0.08, 0.08, 0.08);
+            F0 = lerp(F0 * hit.specular, hit.albedo, hit.metallic);
         
-        float NdotL = max(dot(hit.normal, L), 0.0);
-        float NdotH = max(dot(hit.normal, H), 0.0);
-        float VdotH = max(dot(V, H), 0.0);
-        
-        float3 F0 = float3(0.08, 0.08, 0.08);
-        F0 = lerp(F0 * hit.specular, hit.albedo, hit.metallic);
-        
-        float NDF = DistributionGGX(hit.normal, H, hit.roughness);
-        float G = GeometrySmith(hit.normal, V, L, hit.roughness);
-        float3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
+            float NDF = DistributionGGX(hit.normal, H, hit.roughness);
+            float G = GeometrySmith(hit.normal, V, L, hit.roughness);
+            float3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
         
         
-        float3 kS = F;
-        float3 kD = 1.0 - kS;
-        kD *= 1.0 - hit.metallic;
+            float3 kS = F;
+            float3 kD = 1.0 - kS;
+            kD *= 1.0 - hit.metallic;
         
         //specualr
         //Microfacet specular = D * G * F / (4 * NoL * NoV)
-        float3 nominator = NDF * G * F;
-        float denominator = 4.0 * max(dot(hit.normal, V), 0.0) * max(dot(hit.normal, L), 0.0) + 0.001;
-        float3 specularBrdf = nominator / denominator;
+            float3 nominator = NDF * G * F;
+            float denominator = 4.0 * NdotV * NdotL + 0.001;
+            float3 specularBrdf = nominator / denominator;
         
         //hemisphere sampling pdf
         //pdf = 1 / (2 * PI)
@@ -337,25 +352,211 @@ float3 Shade(inout Ray ray, RayHit hit)
         
         //ImportanceSampleGGX pdf
         //pdf = D * NoH / (4 * VoH)
-        float speccualrPdf = NDF * NdotH / (4 * VdotH);
+            float speccualrPdf = NDF * NdotH / (4 * VdotH);
         
 
         
         //diffuse
         //Lambert diffuse = diffuse / PI
-        float3 diffuseBrdf = hit.albedo / PI;
+            float3 diffuseBrdf = hit.albedo / PI;
         //cosin sample pdf = N dot L / PI
-        float diffusePdf = NdotL / PI;
+            float diffusePdf = NdotL / PI;
 
-        float3 totalBrdf = (diffuseBrdf * kD + specularBrdf) * NdotL;
-        float totalPdf = diffuseRatio * diffusePdf + specularRoatio * speccualrPdf;
+            float3 totalBrdf = (diffuseBrdf * kD + specularBrdf) * NdotL;
+            float totalPdf = diffuseRatio * diffusePdf + specularRoatio * speccualrPdf;
                 
-        ray.origin = hit.position + hit.normal * 0.001f;
-        ray.direction = reflectionDir;
-        if (totalPdf > 0.0)
-        {
-            ray.energy *= totalBrdf / totalPdf;
+            ray.origin = hit.position + hit.normal * 0.001f;
+            ray.direction = reflectionDir;
+            if (totalPdf > 0.0)
+            {
+                ray.energy *= totalBrdf / totalPdf;
+            }
         }
+        else
+        {
+            bool fromOutside = dot(ray.direction, hit.normal) < 0;
+            float3 N = fromOutside ? hit.normal : -hit.normal;
+            float3 bias = N * 0.001f;
+            
+            float etai = 1;
+            float etat = 1.55;
+            
+            float3 V = normalize(-ray.direction);
+            float3 H = ImportanceSampleGGX(float2(rand(), rand()), N, V, hit.roughness);
+            
+            
+            float3 F0 = float3(0.08, 0.08, 0.08);
+            F0 = lerp(F0 * hit.specular, hit.albedo, hit.metallic);
+            float3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
+            
+            float3 L;
+            if (roulette < 0)
+            {//reflection
+               
+                    
+                    ray.origin = hit.position + bias;
+                    L = reflect(ray.direction, H);
+                
+                
+                
+                
+                    float NdotL = max(dot(N, L), 0);
+                    float NdotL2 = max(dot(-N, L), 0);
+                    float NdotV = max(dot(N, V), 0);
+            
+                    float NdotH = max(dot(N, H), 0);
+                    float VdotH = max(dot(V, H), 0);
+                    float LdotH = max(dot(L, H), 0);
+            
+      
+            
+                    float NDF = DistributionGGX(N, H, hit.roughness);
+            //NDF = 1;
+                    float G = GeometrySmith(N, V, L, hit.roughness);
+             //G = 1;
+            
+             //specualr
+            //Microfacet specular = D * G * F / (4 * NoL * NoV)
+                    float3 nominator = NDF * G * F;
+                    float denominator = 4.0 * NdotV * NdotL + 0.001;
+                    float3 specularBrdf = nominator / denominator;
+            
+            //ImportanceSampleGGX pdf
+            //pdf = D * NoH / (4 * VoH)
+                    float speccualrPdf = NDF * NdotH / (4 * VdotH);
+            
+            
+            //refraction 
+                    float etaOut = fromOutside ? etat : etai;
+                    float etaIn = fromOutside ? etai : etat;
+            
+                    float term1 = VdotH * LdotH / (NdotV * NdotL);
+                    float3 term2 = etaOut * etaOut * (float3(1, 1, 1) - F) * G * NDF;
+            //term1 = 1;
+            //term2 = 1;
+                    float term3 = (etaIn * VdotH + etaOut * LdotH) * (etaIn * VdotH + etaOut * LdotH) + 0.001f;
+            //term3 = 1;
+                    float3 refractionBrdf = term1 * term2 / term3;
+            //refractionBrdf = 0.5;
+            //refractionBrdf = 1;
+            //ImportanceSampleGGX pdf
+            //pdf = D * NoH / (4 * VoH)
+                    float refractionPdf = NDF * NdotH / (4 * VdotH);
+            
+            
+            //float3 totalBrdf = (specularBrdf + refractionBrdf) * NdotL;
+            //float totalPdf = F.x * speccualrPdf + (1 - F.x) * refractionPdf;
+            
+            
+
+            //float3 totalBrdf =  refractionBrdf * NdotL2;
+            //float totalPdf =  (1 - F.x) * refractionPdf + 0.001f;
+                    float3 totalBrdf = specularBrdf * NdotL;
+                    float totalPdf = F.x * speccualrPdf;
+                    ray.direction = L;
+                    if (totalPdf > 0.0)
+                    {
+                        ray.energy *= totalBrdf / totalPdf;
+                    }
+              //ray.energy *= 1 ;
+                
+            }
+            else
+            {//refraction
+                if (fromOutside)
+                {
+                    float eta = fromOutside ? etai / etat : etat / etai;
+                    L = normalize(refract(ray.direction, H, eta));
+                //L = N;
+                    if (any(L))
+                    {
+                    
+                        float NdotL = abs(dot(N, L));
+                        float NdotL2 = dot(-N, L);
+                        float NdotV = abs(dot(N, V));
+            
+                        float NdotH = abs(dot(N, H));
+                        float VdotH = abs(dot(V, H));
+                        float LdotH = abs(dot(L, H));
+            
+      
+            
+                        float NDF = DistributionGGX(N, H, hit.roughness);
+                        //NDF = 1;
+                        float G = GeometrySmith(N, V, L, hit.roughness);
+                        G = 1;
+            
+             //specualr
+            //Microfacet specular = D * G * F / (4 * NoL * NoV)
+                        float3 nominator = NDF * G * F;
+                        float denominator = 4.0 * NdotV * NdotL + 0.001;
+                        float3 specularBrdf = nominator / denominator;
+            
+            //ImportanceSampleGGX pdf
+            //pdf = D * NoH / (4 * VoH)
+                        float speccualrPdf = NDF * NdotH / (4 * VdotH);
+            
+            
+            //refraction 
+                        float etaOut = fromOutside ? etat : etai;
+                        float etaIn = fromOutside ? etai : etat;
+            
+                        float term1 = VdotH * LdotH / (NdotV * NdotL);
+                        float3 term2 = etaOut * etaOut * (1 - F) * G * NDF;
+                        //term1 = 1;
+                        //term2 = 1;
+                        float term3 = (etaIn * VdotH + etaOut * LdotH) * (etaIn * VdotH + etaOut * LdotH) + 0.001f;
+                        //term3 = 1;
+                        float3 refractionBrdf = term1 * term2 / term3;
+                    //refractionBrdf = float3(1, 1, 1);
+            //refractionBrdf = 0.5;
+            //refractionBrdf = 1;
+            //ImportanceSampleGGX pdf
+            //pdf = D * NoH / (4 * VoH)
+                        float refractionPdf = NDF * NdotH / (4 * VdotH);
+            
+            
+            //float3 totalBrdf = (specularBrdf + refractionBrdf) * NdotL;
+            //float totalPdf = F.x * speccualrPdf + (1 - F.x) * refractionPdf;
+            
+            
+
+                        float3 totalBrdf = refractionBrdf * NdotL2;
+                        //totalBrdf = 1;
+                        float totalPdf = (1 - F.x) * refractionPdf;
+                        //totalPdf = 1;
+                //float3 totalBrdf = specularBrdf * NdotL;
+                //float totalPdf = F.x * speccualrPdf;
+                        ray.origin = hit.position - bias;
+                        ray.direction = L;
+                        if (totalPdf > 0.0)
+                        {
+                            ray.energy *= totalBrdf / totalPdf;
+                        }
+            //ray.energy *= 1 ;
+                    }
+                    else
+                    {
+                        ray.origin = hit.position + bias;
+                        ray.direction = reflect(ray.direction, N);
+                        ray.energy *= 1;
+                    }
+                
+           
+                }
+                else
+                {
+                    ray.origin = hit.position + hit.normal * 0.01;
+                   // ray.direction = reflect(ray.direction, hit.normal);
+                    ray.energy *= 1;
+                }
+            }
+                   
+            
+          
+
+        }
+      
      
         
     
