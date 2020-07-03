@@ -14,6 +14,7 @@ public class PathTracingMaster : MonoBehaviour
         public float roughness;
         public float specular;
         public float specTrans;
+        public Vector3 transColor;
         public Vector3 emission;
     };
     private RenderTexture _converged;
@@ -72,11 +73,12 @@ public class PathTracingMaster : MonoBehaviour
             //initial sphere's attributes
             //sphere.albedo = new Vector3(0.95f, 0.95f, 0.95f);
             sphere.albedo = new Vector3(color.r, color.g, color.b);
+            sphere.transColor = new Vector3(color.r, color.g, color.b);
             //sphere.albedo = new Vector3(0.03f, 0.03f, 0.03f);
             //sphere.albedo = Vector3.zero;
             sphere.emission = new Vector3(0, 0, 0);
             sphere.metallic = 0.0f;
-            sphere.roughness = 0f;
+            sphere.roughness = 0.3f;
             sphere.specular = 0.5f;
             sphere.specTrans = 1f;
             spheres.Add(sphere);
@@ -89,7 +91,7 @@ public class PathTracingMaster : MonoBehaviour
             _sphereBuffer.Release();
         if (spheres.Count > 0)
         {
-            _sphereBuffer = new ComputeBuffer(spheres.Count, 56);
+            _sphereBuffer = new ComputeBuffer(spheres.Count, 68);
             _sphereBuffer.SetData(spheres);
         }
     }
