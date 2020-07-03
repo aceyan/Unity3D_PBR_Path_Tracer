@@ -431,7 +431,7 @@ float3 Shade(inout Ray ray, RayHit hit)
             
             
             float kr;
-            calculatefresnel(ray.direction, H, 1.55, kr);
+            calculatefresnel(ray.direction, hit.normal, 1.55, kr);
             
             specularRoatio = kr;
             refractionRatio = 1 - kr;
@@ -593,8 +593,7 @@ float3 Shade(inout Ray ray, RayHit hit)
                     L = normalize(refract(ray.direction, H, 1.55));
                     
                     
-                    float kr;
-                    calculatefresnel(ray.direction, H, 1.55, kr);
+                  
                     
                     
                 //L = N;
