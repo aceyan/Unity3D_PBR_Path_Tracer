@@ -1,6 +1,6 @@
 ﻿#include "Common.cginc"
-#include "BRDF.cginc"
-#include "BTDF.cginc"
+#include "BRDFs.cginc"
+#include "BTDFs.cginc"
 #pragma kernel CSMain
 
 struct Sphere
@@ -205,7 +205,7 @@ float3 Shade(inout Ray ray, RayHit hit)
         
             float NDF = DistributionGGX(hit.normal, H, hit.roughness);
             float G = GeometrySmith(hit.normal, V, L, hit.roughness);
-            float3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
+            float3 F = FresnelSchlick(max(dot(H, V), 0.0), F0);
         
             float3 kS = F;
             float3 kD = 1.0 - kS;
@@ -225,9 +225,9 @@ float3 Shade(inout Ray ray, RayHit hit)
         
         //diffuse
         //Lambert diffuse = diffuse / PI
-            float3 diffuseBrdf = hit.albedo / PI;
+            float3 diffuseBrdf = DiffuseBRDF(hit.albedo);
         //cosin sample pdf = N dot L / PI
-            float diffusePdf = NdotL / PI;
+            float diffusePdf = CosinSamplingPDF(NdotL);
 
             float3 totalBrdf = (diffuseBrdf * kD + specularBrdf) * NdotL;
             float totalPdf = diffuseRatio * diffusePdf + specularRoatio * speccualrPdf;
@@ -253,141 +253,77 @@ float3 Shade(inout Ray ray, RayHit hit)
             
             
             float3 F0 = float3(0.08, 0.08, 0.08);
-            F0 = lerp(F0 * hit.specular, hit.albedo, hit.metallic);
-            float3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
+            F0 = F0 * hit.specular;
+            float3 F = FresnelSchlick(max(dot(H, V), 0.0), F0);
             
             
             float refractionRatio = 0.9 * (1.0 - hit.metallic);
             float specularRoatio = 1 - refractionRatio;
-            
-            
-           
-            
-            float kr = calculatefresnel(ray.direction, hit.normal, 1.55);
+            float kr = Calculatefresnel(ray.direction, hit.normal, 1.55);
             
             specularRoatio = kr;
             refractionRatio = 1 - kr;
             
             float3 L;
+            
             if (roulette <= specularRoatio)
-            {//reflection
-               
-                    
-                    ray.origin = hit.position + bias;
-                    L = reflect(ray.direction, H);
-                
-                
-                
-                
-                    float NdotL = max(dot(N, L), 0);
-                    float NdotL2 = max(dot(-N, L), 0);
-                    float NdotV = max(dot(N, V), 0);
-            
-                    float NdotH = max(dot(N, H), 0);
-                    float VdotH = max(dot(V, H), 0);
-                    float LdotH = max(dot(L, H), 0);
-            
-      
-            
-                    float NDF = DistributionGGX(N, H, hit.roughness);
-            //NDF = 1;
-                    float G = GeometrySmith(N, V, L, hit.roughness);
-             //G = 1;//todo
-            
-             //specualr
-            //Microfacet specular = D * G * F / (4 * NoL * NoV)
-                    float3 nominator = NDF * G * F;
-                    float denominator = 4.0 * NdotV * NdotL + 0.001;
-                float3 specularBrdf = SpecularBRDF(NDF, G, F, V, L, N);
-            
-            //ImportanceSampleGGX pdf
-            //pdf = D * NoH / (4 * VoH)
-                float speccualrPdf = ImportanceSampleGGX_PDF(NDF, NdotH, VdotH);
-            
-            
-       
-                    float3 totalBrdf = specularBrdf * NdotL;
-                float totalPdf = specularRoatio * speccualrPdf;
-                    ray.direction = L;
-                    if (totalPdf > 0.0)
-                    {
-                        ray.energy *= totalBrdf / totalPdf;
-                    }
-              //ray.energy *= 1 ;
-                
+            {
+                ray.origin = hit.position + bias;
+                L = reflect(ray.direction, H);
+                ray.direction = L;
             }
             else
-            {//refraction
-               
-                    float eta = fromOutside ? etai / etat : etat / etai;
-                    L = normalize(refract(ray.direction, H, eta));
-                    ray.origin = hit.position - bias;
-                    ray.direction = L;
+            {
+                float eta = fromOutside ? etai / etat : etat / etai;
+                L = normalize(refract(ray.direction, H, eta));
+                ray.origin = hit.position - bias;
+                ray.direction = L;
                 //L = N;
-                    if (!fromOutside)
-                    {
+                if (!fromOutside)
+                {
                         //since the BTDF is not reciprocal, we need to invert the direction of our vectors.
-                        float3 temp = L;
-                        L = V;
-                        V = temp;
+                    float3 temp = L;
+                    L = V;
+                    V = temp;
                         
-                        N = -N;
-                        H = -H;
-                    }
-
-                    
-                        float NdotL = abs(dot(N, L));
-                        //float NdotL2 = abs(dot(-N, L));
-                        float NdotV = abs(dot(N, V));
+                    N = -N;
+                    H = -H;
+                }
+            }
             
-                        float NdotH = abs(dot(N, H));
-                        float VdotH = abs(dot(V, H));
-                        float LdotH = abs(dot(L, H));
+            float NdotL = abs(dot(N, L));
+            float NdotV = abs(dot(N, V));
             
-      
-            
-                        float NDF = DistributionGGX(N, H, hit.roughness);
-                        //NDF = 1;
-                        float G = GeometrySmith(N, V, L, hit.roughness);
-                        //G = 1;
-                        
-                        //G = max(G, 0.001);
-           
+            float NdotH = abs(dot(N, H));
+            float VdotH = abs(dot(V, H));
+            float LdotH = abs(dot(L, H));
             
             
-            //refraction 
-                        float etaOut =  etat;
-                        float etaIn = etai;
+            float NDF = DistributionGGX(N, H, hit.roughness);
+            float G = GeometrySmith(N, V, L, hit.roughness);
             
-                        float3 refractionBrdf = RefractionBTDF(NDF, G, F, V, L, N, H, etaIn, etaOut);
-                    //refractionBrdf = float3(1, 1, 1);
-            //refractionBrdf = 0.5;
-            //refractionBrdf = 1;
+             //specualr
+   
+            float3 specularBrdf = SpecularBRDF(NDF, G, F, V, L, N);
+            
             //ImportanceSampleGGX pdf
             //pdf = D * NoH / (4 * VoH)
-                        float refractionPdf = ImportanceSampleGGX_PDF(NDF, NdotH, VdotH);
+            float speccualrPdf = ImportanceSampleGGX_PDF(NDF, NdotH, VdotH);
             
+            //refraction
+            float etaOut = etat;
+            float etaIn = etai;
             
-            //float3 totalBrdf = (specularBrdf + refractionBrdf) * NdotL;
-            //float totalPdf = F.x * speccualrPdf + (1 - F.x) * refractionPdf;
+            float3 refractionBtdf = RefractionBTDF(NDF, G, F, V, L, N, H, etaIn, etaOut);
+            float refractionPdf = ImportanceSampleGGX_PDF(NDF, NdotH, VdotH);
             
-            
-                        float3 totalBrdf = refractionBrdf * NdotL * hit.transColor;
-                        //totalBrdf = 1;
-                        float totalPdf = refractionRatio * refractionPdf;
-                        //totalPdf = 1;
-                //float3 totalBrdf = specularBrdf * NdotL;
-                //float totalPdf = F.x * speccualrPdf;
-                       
-                        if (totalPdf > 0.0)
-                        {
-                            ray.energy *= totalBrdf / totalPdf;
-                        }
-            //ray.energy *= 1 ;
-                   
+            //BSDF = BRDF + BTDF
+            float3 totalBrdf = (specularBrdf + refractionBtdf * hit.transColor) * NdotL;
+            float totalPdf = specularRoatio * speccualrPdf + refractionRatio * refractionPdf;
+            if (totalPdf > 0.0)
+            {
+                ray.energy *= totalBrdf / totalPdf;
             }
-
-
         }
       
         

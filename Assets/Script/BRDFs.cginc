@@ -19,6 +19,11 @@ float3 SpecularBRDF(float D, float G, float3 F, float3 V, float3 L, float3 N)
     return specularBrdf;
 }
 
+float3 DiffuseBRDF(float3 albedo)
+{
+    return albedo / PI;
+}
+
 
 
 #endif

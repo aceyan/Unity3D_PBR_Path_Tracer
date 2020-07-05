@@ -39,7 +39,13 @@ float3 SampleHemisphere(float3 normal, float alpha)
     return mul(tangentSpaceDir, GetTransformMatrix(normal));
 }
 
-float3 fresnelSchlick(float cosTheta, float3 F0)
+//SampleHemisphere alpha = 1
+float CosinSamplingPDF(float NdotL)
+{
+    return NdotL / PI;
+}
+
+float3 FresnelSchlick(float cosTheta, float3 F0)
 {
     return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
 }
@@ -113,7 +119,7 @@ float ImportanceSampleGGX_PDF(float NDF, float NdotH, float VdotH)
 }
 
 //calculate fresnel
-float calculatefresnel(const float3 I, const float3 N, const float3 ior)
+float Calculatefresnel(const float3 I, const float3 N, const float3 ior)
 {
     float kr;
     float cosi = clamp(-1, 1, dot(I, N));
