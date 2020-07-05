@@ -1,25 +1,7 @@
-﻿#include "MyCginclude.cginc"
+﻿#include "Common.cginc"
+#include "BRDF.cginc"
+#include "BTDF.cginc"
 #pragma kernel CSMain
-RWTexture2D<float4> Result;
-float4x4 _CameraToWorld;
-float4x4 _CameraInverseProjection;
-//
-Texture2D<float4> _SkyboxTexture;
-SamplerState sampler_SkyboxTexture;
-static const float PI = 3.14159265f;
-float2 _PixelOffset;
-float4 _DirectionalLight;
-
-float2 _Pixel;
-float _Seed;
-
-float rand()
-{
-    float result = frac(sin(_Seed / 100.0f * dot(_Pixel, float2(12.9898f, 78.233f))) * 43758.5453f);
-    _Seed += 1.0f;
-    return result;
-}
-
 
 struct Sphere
 {
@@ -33,7 +15,6 @@ struct Sphere
     float3 transColor;
     float3 emission;
 };
-StructuredBuffer<Sphere> _Spheres;
 
 struct Ray
 {
@@ -42,6 +23,31 @@ struct Ray
     float3 energy;
 };
 
+struct RayHit
+{
+    float3 position;
+    float distance;
+    float3 normal;
+    float3 albedo;
+    float metallic;
+    float roughness;
+    float specular;
+    float specTrans;
+    float3 transColor;
+    float3 emission;
+};
+
+RWTexture2D<float4> Result;
+float4x4 _CameraToWorld;
+float4x4 _CameraInverseProjection;
+//
+Texture2D<float4> _SkyboxTexture;
+SamplerState sampler_SkyboxTexture;
+
+float2 _PixelOffset;
+float4 _DirectionalLight;
+
+StructuredBuffer<Sphere> _Spheres;
 
 Ray CreateRay(float3 origin, float3 direction)
 {
@@ -65,19 +71,7 @@ Ray CreateCameraRay(float2 uv)
     return CreateRay(origin, direction);
 }
 
-struct RayHit
-{
-    float3 position;
-    float distance;
-    float3 normal;
-    float3 albedo;
-    float metallic;
-    float roughness;
-    float specular;
-    float specTrans;
-    float3 transColor;
-    float3 emission;
-};
+
 
 RayHit CreateRayHit()
 {
@@ -105,16 +99,15 @@ void IntersectGroundPlane(Ray ray, inout RayHit bestHit)
         bestHit.position = ray.origin + t * ray.direction;
         bestHit.normal = float3(0.0f, 1.0f, 0.0f);
         bestHit.albedo = 0.5f;
-        bestHit.metallic = 0.5f;
-        bestHit.roughness = 1.0f;
+        bestHit.metallic = 0.0f;
+        bestHit.roughness = 0.0f;
         bestHit.specular = 0.5f;
-        bestHit.specTrans = 0;
-        bestHit.transColor = 0;
+        bestHit.specTrans = 1;
+        bestHit.transColor = float3(1, 0, 0);
         bestHit.emission = float3(0, 0, 0);
 
     }
 }
-
 
 void IntersectSphere(Ray ray, inout RayHit bestHit, Sphere sphere)
 {
@@ -142,37 +135,11 @@ void IntersectSphere(Ray ray, inout RayHit bestHit, Sphere sphere)
     }
 }
 
-//return the roation matrix
-float3x3 GetTransformMatrix(float3 normal)
-{
-    // Choose a helper vector for the cross product
-    float3 helper = float3(1, 0, 0);
-    if (abs(normal.x) > 0.99f)
-        helper = float3(0, 0, 1);
-
-    // Generate vectors
-    float3 tangent = normalize(cross(normal, helper));
-    float3 binormal = normalize(cross(normal, tangent));
-    return float3x3(tangent, binormal, normal);
-}
-
-float3 SampleHemisphere(float3 normal, float alpha)
-{
-    // Sample the hemisphere, where alpha determines the kind of the sampling
-    float cosTheta = pow(rand(), 1.0f / (alpha + 1.0f));
-    float sinTheta = sqrt(1.0f - cosTheta * cosTheta);
-    float phi = 2 * PI * rand();
-    float3 tangentSpaceDir = float3(cos(phi) * sinTheta, sin(phi) * sinTheta, cosTheta);
-
-    // Transform direction to be centered around whatever noraml we need
-    return mul(tangentSpaceDir, GetTransformMatrix(normal));
-}
-
 
 RayHit Trace(Ray ray)
 {
     RayHit bestHit = CreateRayHit();
-    //IntersectGroundPlane(ray, bestHit);
+    IntersectGroundPlane(ray, bestHit);
 
  
 
@@ -186,137 +153,6 @@ RayHit Trace(Ray ray)
 }
 
 
-//calculate fresnel
-void fresnel(const float3 I, const float3 N, const float3 ior, inout float kr)
-{
-    float cosi = clamp(-1, 1, dot(I, N));
-    float etai = 1, etat = ior;
-    if (cosi > 0)
-    {
-        //std::swap(etai, etat);
-        float temp = etai;
-        etai = etat;
-        etat = temp;
-    }
-    // Compute sini using Snell's law
-    float sint = etai / etat * sqrt(max(0.f, 1 - cosi * cosi));
-    // Total internal reflection
-    if (sint >= 1)
-    {
-        kr = 1;
-    }
-    else
-    {
-        float cost = sqrt(max(0.f, 1 - sint * sint));
-        cosi = abs(cosi);
-        float Rs = ((etat * cosi) - (etai * cost)) / ((etat * cosi) + (etai * cost));
-        float Rp = ((etai * cosi) - (etat * cost)) / ((etai * cosi) + (etat * cost));
-        kr = (Rs * Rs + Rp * Rp) / 2;
-    }
-    // As a consequence of the conservation of energy, transmittance is given by:
-    // kt = 1 - kr;
-}
-
-float3 fresnelSchlick(float cosTheta, float3 F0)
-{
-    return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
-}
-
-float DistributionGGX(float3 N, float3 H, float roughness)
-{
-    float a = roughness * roughness;
-    float a2 = a * a;
-    float NdotH = max(dot(N, H), 0.0);
-    float NdotH2 = NdotH * NdotH;
-
-    float nom = a2;
-    float denom = (NdotH2 * (a2 - 1.0) + 1.0);
-    denom = PI * denom * denom;
-
-    return nom / denom;
-}
-
-float GeometrySchlickGGX(float NdotV, float roughness)
-{
-    float r = (roughness + 1.0);
-    float k = (r * r) / 8.0;
-
-    float nom = NdotV;
-    float denom = NdotV * (1.0 - k) + k;
-
-    return nom / denom;
-}
-float GeometrySmith(float3 N, float3 V, float3 L, float roughness)
-{
-    float NdotV = abs(dot(N, V));
-    float NdotL = abs(dot(N, L));
-    float ggx2 = GeometrySchlickGGX(NdotV, roughness);
-    float ggx1 = GeometrySchlickGGX(NdotL, roughness);
-
-    return ggx1 * ggx2;
-}
-
-float GetEnergy(float3 color)
-{
-    return dot(color, 1.0f / 3.0f);
-}
-
-float3 ImportanceSampleGGX(float2 Xi, float3 N, float3 V, float roughness)
-{
-    float a = roughness * roughness;
-
-    float phi = 2.0 * PI * Xi.x;
-    float cosTheta = sqrt((1.0 - Xi.y) / (1.0 + (a * a - 1.0) * Xi.y));
-    float sinTheta = sqrt(1.0 - cosTheta * cosTheta);
-
-    // from spherical coordinates to cartesian coordinates
-    float3 H;
-    H.x = cos(phi) * sinTheta;
-    H.y = sin(phi) * sinTheta;
-    H.z = cosTheta;
-
-    // from tangent-space vector to world-space sample vector
-    float3 up = abs(N.z) < 0.999 ? float3(0.0, 0.0, 1.0) : float3(1.0, 0.0, 0.0);
-    float3 tangent = normalize(cross(up, N));
-    float3 bitangent = cross(N, tangent);
-
-    float3 halfVec = tangent * H.x + bitangent * H.y + N * H.z;
-    halfVec = normalize(halfVec);
-    
-    return halfVec;
-
-}
-
-//calculate fresnel
-void calculatefresnel(const float3 I, const float3 N, const float3 ior, inout float kr)
-{
-    float cosi = clamp(-1, 1, dot(I, N));
-    float etai = 1, etat = ior;
-    if (cosi > 0)
-    {
-        //std::swap(etai, etat);
-        float temp = etai;
-        etai = etat;
-        etat = temp;
-    }
-    // Compute sini using Snell's law
-    float sint = etai / etat * sqrt(max(0.f, 1 - cosi * cosi));
-    // Total internal reflection
-    if (sint >= 1)
-    {
-        kr = 1;
-    }
-    else
-    {
-        float cost = sqrt(max(0.f, 1 - sint * sint));
-        cosi = abs(cosi);
-        float Rs = ((etat * cosi) - (etai * cost)) / ((etat * cosi) + (etai * cost));
-        float Rp = ((etai * cosi) - (etat * cost)) / ((etai * cosi) + (etat * cost));
-        kr = (Rs * Rs + Rp * Rp) / 2;
-    }
-    // As a consequence of the conservation of energy, transmittance is given by:
-    // kt = 1 - kr;
-}
 
 float3 Shade(inout Ray ray, RayHit hit)
 {
@@ -371,16 +207,11 @@ float3 Shade(inout Ray ray, RayHit hit)
             float G = GeometrySmith(hit.normal, V, L, hit.roughness);
             float3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
         
-        
             float3 kS = F;
             float3 kD = 1.0 - kS;
             kD *= 1.0 - hit.metallic;
         
-        //specualr
-        //Microfacet specular = D * G * F / (4 * NoL * NoV)
-            float3 nominator = NDF * G * F;
-            float denominator = 4.0 * NdotV * NdotL + 0.001;
-            float3 specularBrdf = nominator / denominator;
+            float3 specularBrdf = SpecularBRDF(NDF, G, F, V, L, hit.normal);
         
         //hemisphere sampling pdf
         //pdf = 1 / (2 * PI)
@@ -388,7 +219,7 @@ float3 Shade(inout Ray ray, RayHit hit)
         
         //ImportanceSampleGGX pdf
         //pdf = D * NoH / (4 * VoH)
-            float speccualrPdf = NDF * NdotH / (4 * VdotH);
+            float speccualrPdf = ImportanceSampleGGX_PDF(NDF, NdotH, VdotH);
         
 
         
@@ -430,8 +261,9 @@ float3 Shade(inout Ray ray, RayHit hit)
             float specularRoatio = 1 - refractionRatio;
             
             
-            float kr;
-            calculatefresnel(ray.direction, hit.normal, 1.55, kr);
+           
+            
+            float kr = calculatefresnel(ray.direction, hit.normal, 1.55);
             
             specularRoatio = kr;
             refractionRatio = 1 - kr;
@@ -466,38 +298,14 @@ float3 Shade(inout Ray ray, RayHit hit)
             //Microfacet specular = D * G * F / (4 * NoL * NoV)
                     float3 nominator = NDF * G * F;
                     float denominator = 4.0 * NdotV * NdotL + 0.001;
-                    float3 specularBrdf = nominator / denominator;
+                float3 specularBrdf = SpecularBRDF(NDF, G, F, V, L, N);
             
             //ImportanceSampleGGX pdf
             //pdf = D * NoH / (4 * VoH)
-                    float speccualrPdf = NDF * NdotH / (4 * VdotH);
+                float speccualrPdf = ImportanceSampleGGX_PDF(NDF, NdotH, VdotH);
             
             
-            //refraction 
-                    float etaOut = fromOutside ? etat : etai;
-                    float etaIn = fromOutside ? etai : etat;
-            
-                    float term1 = VdotH * LdotH / (NdotV * NdotL);
-                    float3 term2 = etaOut * etaOut * (1 - F) * G * NDF;
-            //term1 = 1;
-            //term2 = 1;
-                    float term3 = (etaIn * VdotH + etaOut * LdotH) * (etaIn * VdotH + etaOut * LdotH) + 0.001f;
-            //term3 = 1;
-                    float3 refractionBrdf = term1 * term2 / term3;
-            //refractionBrdf = 0.5;
-            //refractionBrdf = 1;
-            //ImportanceSampleGGX pdf
-            //pdf = D * NoH / (4 * VoH)
-                    float refractionPdf = NDF * NdotH / (4 * VdotH);
-            
-            
-            //float3 totalBrdf = (specularBrdf + refractionBrdf) * NdotL;
-            //float totalPdf = F.x * speccualrPdf + (1 - F.x) * refractionPdf;
-            
-            
-
-            //float3 totalBrdf =  refractionBrdf * NdotL2;
-            //float totalPdf =  (1 - F.x) * refractionPdf + 0.001f;
+       
                     float3 totalBrdf = specularBrdf * NdotL;
                 float totalPdf = specularRoatio * speccualrPdf;
                     ray.direction = L;
@@ -510,13 +318,23 @@ float3 Shade(inout Ray ray, RayHit hit)
             }
             else
             {//refraction
-                if (fromOutside)
-                {
+               
                     float eta = fromOutside ? etai / etat : etat / etai;
                     L = normalize(refract(ray.direction, H, eta));
+                    ray.origin = hit.position - bias;
+                    ray.direction = L;
                 //L = N;
-                    if (any(L))
+                    if (!fromOutside)
                     {
+                        //since the BTDF is not reciprocal, we need to invert the direction of our vectors.
+                        float3 temp = L;
+                        L = V;
+                        V = temp;
+                        
+                        N = -N;
+                        H = -H;
+                    }
+
                     
                         float NdotL = abs(dot(N, L));
                         //float NdotL2 = abs(dot(-N, L));
@@ -538,160 +356,40 @@ float3 Shade(inout Ray ray, RayHit hit)
             
             
             //refraction 
-                        float etaOut = fromOutside ? etat : etai;
-                        float etaIn = fromOutside ? etai : etat;
-            
-                        float term1 = VdotH * LdotH / (NdotV * NdotL);
-                        float3 term2 = etaOut * etaOut * (1 - F) * G * NDF;
-                        //term1 = 1;
-                        //term2 = 1;
-                        float term3 = (etaIn * VdotH + etaOut * LdotH) * (etaIn * VdotH + etaOut * LdotH) + 0.001f;
-                        //term3 = 1;
-                        float3 refractionBrdf = term1 * term2 / term3;
-                    //refractionBrdf = float3(1, 1, 1);
-            //refractionBrdf = 0.5;
-            //refractionBrdf = 1;
-            //ImportanceSampleGGX pdf
-            //pdf = D * NoH / (4 * VoH)
-                        float refractionPdf = NDF * NdotH / (4 * VdotH);
-            
-            
-            //float3 totalBrdf = (specularBrdf + refractionBrdf) * NdotL;
-            //float totalPdf = F.x * speccualrPdf + (1 - F.x) * refractionPdf;
-            
-            
-                        float3 colorTest = MyFunc();
-                        float3 totalBrdf = refractionBrdf * NdotL * hit.transColor;
-                        //totalBrdf = 1;
-                        float totalPdf = refractionRatio * refractionPdf;
-                        //totalPdf = 1;
-                //float3 totalBrdf = specularBrdf * NdotL;
-                //float totalPdf = F.x * speccualrPdf;
-                        ray.origin = hit.position - bias;
-                        ray.direction = L;
-                        if (totalPdf > 0.0)
-                        {
-                            ray.energy *= totalBrdf / totalPdf;
-                        }
-            //ray.energy *= 1 ;
-                    }
-           
-                }
-                else
-                {
-                    //ray.origin = hit.position + hit.normal * 0.01;
-                    //ray.energy *= 1;
-                    
-                    
-                    
-                    /////////////////////////////////////////////////////
-                    // 内部
-                    ///////////////////////////////////////////////////////
-                    
-                    
-                    float eta = etat / etai;
-                    L = normalize(refract(ray.direction, H, 1.55));
-                    
-                    
-                  
-                    
-                    
-                //L = N;
-                    if (rand() > 0)
-                    {
-                        
-                        ray.direction = L;
-                        
-                        
-                        float3 temp = L;
-                        L = V;
-                        V = temp;
-                        
-                        float NdotL = abs(dot(-N, L));
-                        float NdotL2 = dot(N, L);
-                        float NdotV = abs(dot(-N, V));
-            
-                        float NdotH = abs(dot(-N, -H));
-                        float VdotH = abs(dot(V, -H));
-                        float LdotH = abs(dot(L, -H));
-            
-      
-            
-                        float NDF = DistributionGGX(-N, -H, hit.roughness);
-                        //NDF = 1;
-                        float G = GeometrySmith(-N, V, L, hit.roughness);
-                        //G = 1;
-           
-            
-            
-            //refraction 
-                        //float etaOut =  etai;
-                        //float etaIn =  etat;
-                        
-                        float etaOut = etat;
+                        float etaOut =  etat;
                         float etaIn = etai;
             
-                        float term1 = VdotH * LdotH / (NdotV * NdotL);
-                        float3 term2 = etaOut * etaOut * (1 - F) * G * NDF;
-                        //term1 = 1;
-                        //term2 = 1;
-                        float term3 = (etaIn * VdotH + etaOut * LdotH) * (etaIn * VdotH + etaOut * LdotH);
-                        //term3 = 1;
-                        float3 refractionBrdf = term1 * term2 / term3;
+                        float3 refractionBrdf = RefractionBTDF(NDF, G, F, V, L, N, H, etaIn, etaOut);
                     //refractionBrdf = float3(1, 1, 1);
             //refractionBrdf = 0.5;
             //refractionBrdf = 1;
             //ImportanceSampleGGX pdf
             //pdf = D * NoH / (4 * VoH)
-                        float refractionPdf = NDF * NdotH / (4 * VdotH);
+                        float refractionPdf = ImportanceSampleGGX_PDF(NDF, NdotH, VdotH);
             
             
             //float3 totalBrdf = (specularBrdf + refractionBrdf) * NdotL;
             //float totalPdf = F.x * speccualrPdf + (1 - F.x) * refractionPdf;
             
             
-
                         float3 totalBrdf = refractionBrdf * NdotL * hit.transColor;
                         //totalBrdf = 1;
                         float totalPdf = refractionRatio * refractionPdf;
                         //totalPdf = 1;
                 //float3 totalBrdf = specularBrdf * NdotL;
                 //float totalPdf = F.x * speccualrPdf;
-                        ray.origin = hit.position - bias;
+                       
                         if (totalPdf > 0.0)
                         {
                             ray.energy *= totalBrdf / totalPdf;
-                            //ray.energy *= 0.5;
-
                         }
             //ray.energy *= 1 ;
-                    }
-                    else
-                    {
-                        //ray.origin = hit.position + bias;
-                        //ray.direction = reflect(ray.direction, H);
-                        //ray.energy *= 1;
-                        
-                        //ray.energy *= 1;
-                        //ray.origin = hit.position + hit.normal * 0.01;
-                        //ray.energy *= 1;
-                    }
-                    
-
-                }
-                
-                
+                   
             }
 
-                   
-            
-          
 
         }
       
-     
-        
-    
         
         return hit.emission;
     }
