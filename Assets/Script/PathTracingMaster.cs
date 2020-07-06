@@ -51,40 +51,86 @@ public class PathTracingMaster : MonoBehaviour
     private void SetUpScene()
     {
         //Random.InitState(SphereSeed);
+
+        Color color = Color.white;
         List<Sphere> spheres = new List<Sphere>();
-        for (int i = 0; i < SpheresMax; i++)
+        for (int i = 0; i < 55; i++)
         {
             Sphere sphere = new Sphere();
 
-            sphere.radius = SphereRadius.x + Random.value * (SphereRadius.y - SphereRadius.x);
-            Vector2 randomPos = Random.insideUnitCircle * SpherePlacementRadius;
-            sphere.position = new Vector3(randomPos.x, sphere.radius, randomPos.y);
+            sphere.radius = 10;
+            float intervalX = 3 * sphere.radius;
+            float intervalZ = 4 * sphere.radius;
+            float startX = -4.5f * intervalX;
+            float startZ = 2 * intervalZ;
 
-            foreach (Sphere other in spheres)
+            int row = i / 11;
+            int col = i % 11;
+            sphere.position = new Vector3(startX + col * intervalX, startZ - row * intervalZ,  0);
+
+     
+
+           
+            sphere.emission = new Vector3(0, 0, 0);
+
+         
+            switch (row)
             {
-                float minDist = sphere.radius + other.radius;
-                if (Vector3.SqrMagnitude(sphere.position - other.position) < minDist * minDist)
-                    goto SkipSphere;
+                case 0://metallic row 
+                    sphere.albedo = new Vector3(1, 0.71f, 0);
+                    sphere.metallic = col * 0.1f;
+                    sphere.transColor = sphere.albedo;
+                    sphere.roughness = 0.1f;
+                    sphere.specular = 0.5f;
+                    sphere.specTrans = 0.0f;
+                    break;
+                case 1:
+                    //specular row
+                    sphere.albedo = new Vector3(1, 0, 0);
+                    sphere.metallic = 0;
+                    sphere.transColor = sphere.albedo;
+                    sphere.roughness = 0.1f;
+                    sphere.specular = col * 0.1f;
+                    sphere.specTrans = 0.0f;
+
+                    break;
+                case 2:
+                    //roughness row
+                    sphere.albedo = new Vector3(0, 0.8f, 0.2f);
+                    sphere.metallic = 0;
+                    sphere.transColor = sphere.albedo;
+                    sphere.roughness = col* 0.1f;
+                    sphere.specular = 0.5f;
+                    sphere.specTrans = 0.0f;
+                    break;
+                case 3:
+                    //specTrans row
+                    sphere.albedo = new Vector3(0.5f, 0.2f, 1);
+                    sphere.metallic = 0;
+                    sphere.transColor = sphere.albedo;
+                    sphere.roughness = 0.1f;
+                    sphere.specular = 0.5f;
+                    sphere.specTrans = col * 0.1f;
+                    break;
+                case 4:
+                    //roughness with specTrans = 1
+                    sphere.albedo = new Vector3(0.03f, 0.03f, 0.03f);
+                    sphere.metallic = 0;
+                    sphere.transColor = new Vector3(1, 1, 1);
+                    sphere.roughness = col * 0.1f;
+                    sphere.specular = 0.5f;
+                    sphere.specTrans = 1f;
+                    break;
             }
 
-            Color color = Random.ColorHSV();
-            float chance = Random.value;
 
-            //initial sphere's attributes
-            //sphere.albedo = new Vector3(0.95f, 0.95f, 0.95f);
-            sphere.albedo = new Vector3(color.r, color.g, color.b);
-            sphere.transColor = new Vector3(color.r, color.g, color.b);
-            //sphere.albedo = new Vector3(0.03f, 0.03f, 0.03f);
-            //sphere.albedo = Vector3.zero;
-            sphere.emission = new Vector3(0, 0, 0);
-            sphere.metallic = 0f;
-            sphere.roughness = 0.1f;
-            sphere.specular = 0.5f;
-            sphere.specTrans = 1f;
+ 
+            
+           
+
+
+
             spheres.Add(sphere);
-
-        SkipSphere:
-            continue;
         }
 
         if (_sphereBuffer != null)
