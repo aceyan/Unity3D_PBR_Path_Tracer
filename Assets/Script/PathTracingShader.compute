@@ -139,7 +139,7 @@ void IntersectSphere(Ray ray, inout RayHit bestHit, Sphere sphere)
 RayHit Trace(Ray ray)
 {
     RayHit bestHit = CreateRayHit();
-    IntersectGroundPlane(ray, bestHit);
+    //IntersectGroundPlane(ray, bestHit);
 
  
 
@@ -159,12 +159,13 @@ float3 Shade(inout Ray ray, RayHit hit)
     if (hit.distance < 1.#INF)
     {
 
-        float3 reflectionDir;
         float roulette = rand();
+        float blender = rand();//used to blend BSDF and BRDF
         
-        
-        if (hit.specTrans == 0)
+        if (blender < 1 - hit.specTrans)
         {
+            float3 reflectionDir;
+            
             float diffuseRatio = 0.5 * (1.0 - hit.metallic);
             float specularRoatio = 1 - diffuseRatio;
             float3 V = normalize(-ray.direction);
@@ -257,12 +258,10 @@ float3 Shade(inout Ray ray, RayHit hit)
             float3 F = FresnelSchlick(max(dot(H, V), 0.0), F0);
             
             
-            float refractionRatio = 0.9 * (1.0 - hit.metallic);
-            float specularRoatio = 1 - refractionRatio;
             float kr = Calculatefresnel(ray.direction, hit.normal, 1.55);
             
-            specularRoatio = kr;
-            refractionRatio = 1 - kr;
+            float specularRoatio = kr;
+            float refractionRatio = 1 - kr;
             
             float3 L;
             

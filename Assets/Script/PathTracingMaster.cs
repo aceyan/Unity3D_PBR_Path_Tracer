@@ -78,9 +78,9 @@ public class PathTracingMaster : MonoBehaviour
             //sphere.albedo = Vector3.zero;
             sphere.emission = new Vector3(0, 0, 0);
             sphere.metallic = 0f;
-            sphere.roughness = 0.2f;
+            sphere.roughness = 0.1f;
             sphere.specular = 0.5f;
-            sphere.specTrans = 0f;
+            sphere.specTrans = 1f;
             spheres.Add(sphere);
 
         SkipSphere:

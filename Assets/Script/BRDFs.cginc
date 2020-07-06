@@ -3,10 +3,7 @@
 #include "Common.cginc"
 
 float3 SpecularBRDF(float D, float G, float3 F, float3 V, float3 L, float3 N)
-{
-
-    float3 H = normalize(V + L);
-        
+{        
     float NdotL = abs(dot(N, L));
     float NdotV = abs(dot(N, V));
             
